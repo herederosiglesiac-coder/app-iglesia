@@ -12,7 +12,7 @@ DB_ASISTENCIA = "db_asistencia.csv"
 DB_FINANZAS = "db_finanzas.csv"
 DB_EVENTOS = "db_eventos.csv"
 DB_ORACIONES = "db_oraciones.csv"
-DB_CHAT = "db_chat.csv"  # <- NUEVA BASE DE DATOS PARA EL CHAT INTERNO
+DB_CHAT = "db_chat.csv"
 
 # Funciones de utilidad para leer y escribir datos sin intermediarios
 def cargar_datos(archivo, columnas):
@@ -40,7 +40,11 @@ def autenticar():
         if st.sidebar.button("Iniciar Sesión"):
             user = usuarios_df[(usuarios_df["Correo_Electronico"] == email_input) & (usuarios_df["Contraseña"] == pass_input)]
             if not user.empty:
-                st.session_state.usuario = {"Nombre": user.iloc[0]["Nombre_Completo"], "Rol": user.iloc[0]["Rol"]}
+                # --- ¡CORREGIDO AQUÍ! Se usa .iloc[0] para extraer la primera fila correctamente ---
+                st.session_state.usuario = {
+                    "Nombre": user.iloc[0]["Nombre_Completo"], 
+                    "Rol": user.iloc[0]["Rol"]
+                }
                 st.rerun()
             else: st.sidebar.error("Correo o contraseña incorrectos.")
     else:
@@ -169,7 +173,6 @@ def panel_chat(usuario_actual):
     st.markdown("## 💬 Chat Interno de Líderes")
     df_c = cargar_datos(DB_CHAT, ["Fecha", "De", "Mensaje"])
     
-    # Formulario para enviar mensaje al chat
     with st.form("form_enviar_chat", clear_on_submit=True):
         mensaje_c = st.text_input("Escribe un mensaje técnico o anuncio para el equipo:")
         if st.form_submit_button("Enviar al Muro") and mensaje_c.strip():
@@ -181,7 +184,6 @@ def panel_chat(usuario_actual):
     st.markdown("---")
     st.subheader("📋 Historial de Mensajes Recientes")
     if not df_c.empty:
-        # Mostrar los mensajes organizados de forma visual amigable para celular
         for _, row in df_c.tail(20).iloc[::-1].iterrows():
             st.markdown(f"🔹 **{row['De']}** *({row['Fecha']})*")
             st.info(row['Mensaje'])
@@ -196,3 +198,4 @@ def main():
     else:
         rol = str(usuario.get("Rol", "servidor")).strip().lower()
         menu = ["Inicio (Vista Pública)"]
+        if rol in ["pastor", "líder", "lider", "servidor"]: menu.append("Consolidación y Asistencia")
