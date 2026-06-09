@@ -37,8 +37,8 @@ def autenticar():
         password = st.sidebar.text_input("Contraseña", type="password", key="login_pass")
         
         if st.sidebar.button("Iniciar Sesión"):
-            if not usuarios_df.empty and "Correo" in usuarios_df.columns and "Contraseña" in usuarios_df.columns:
-                user = usuarios_df[(usuarios_df["Correo"] == email) & (usuarios_df["Contraseña"] == str(password))]
+            if not usuarios_df.empty and "Correo_Electronico" in usuarios_df.columns and "Contraseña" in usuarios_df.columns:
+                user = usuarios_df[(usuarios_df["Correo_Electronico"] == email) & (usuarios_df["Contraseña"] == str(password))]
                 if not user.empty:
                     st.session_state.usuario = user.iloc[0].to_dict()
                     st.rerun()
