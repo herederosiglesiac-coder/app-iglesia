@@ -20,7 +20,6 @@ def cargar_datos(archivo, columnas):
     if os.path.exists(archivo):
         try:
             df = pd.read_csv(archivo)
-            # Asegurar que no regresen nulos molestos
             return df.fillna("")
         except:
             return pd.DataFrame(columns=columnas)
@@ -53,12 +52,17 @@ def autenticar():
         pass_input = st.sidebar.text_input("Contraseña", type="password", key="login_pass").strip()
         
         if st.sidebar.button("Iniciar Sesión"):
-            # Validación limpia libre de fallas de índice
-            user_match = usuarios_df[(usuarios_df["Correo_Electronico"] == email_input) & (usuarios_df["Contrasena"] == pass_input)]
-            if not user_match.empty:
+            # Búsqueda nativa y segura en el diccionario de datos
+            usuario_encontrado = None
+            for u in USUARIOS_LOCALES:
+                if u["Correo_Electronico"] == email_input and u["Contrasena"] == pass_input:
+                    usuario_encontrado = u
+                    break
+            
+            if usuario_encontrado:
                 st.session_state.usuario = {
-                    "Nombre": str(user_match.iloc[0]["Nombre_Completo"]),
-                    "Rol": str(user_match.iloc[0]["Rol"])
+                    "Nombre": usuario_encontrado["Nombre_Completo"],
+                    "Rol": usuario_encontrado["Rol"]
                 }
                 st.rerun()
             else:
@@ -195,5 +199,3 @@ def panel_eventos():
         titulo_e = st.text_input("Título de la Actividad / Nombre del Sermón")
         tipo_e = st.selectbox("Tipo de Recurso", ["Culto en Vivo", "Campamento", "Conferencia", "Material de Estudio", "Anuncio de la Semana"])
         url_e = st.text_input("Enlace de Video o Transmisión (Pega el link de YouTube o Facebook)")
-        fecha_e = st.date_input("Fecha programada para el Evento", datetime.now())
-        
