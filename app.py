@@ -1,61 +1,72 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
-import os
+from io import BytesIO
 
-# --- Configuración Base de la Pantalla ---
+# --- Configuración Visual Móvil ---
 st.set_page_config(page_title="Herederos Iglesia Nacional", layout="centered")
 
-# --- Bases de Datos Internas de la Aplicación ---
-DB_MIEMBROS = "db_miembros.csv"
-DB_ASISTENCIA = "db_asistencia.csv"
-DB_FINANZAS = "db_finanzas.csv"
-DB_CHAT = "db_chat.csv"  # <- Base de datos interna para el Chat
+# --- Conexión Segura con tu Google Sheet ---
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+except Exception as e:
+    st.error(f"Error de conexión con el servidor de Google: {e}")
+    st.stop()
 
-# Funciones de utilidad seguras para cargar y guardar información
-def cargar_datos(archivo, columnas):
-    if os.path.exists(archivo):
-        try: return pd.read_csv(archivo)
-        except: return pd.DataFrame(columns=columnas)
-    return pd.DataFrame(columns=columnas)
+# Función limpia para cargar datos de tus pestañas reales
+def leer_pestaña(nombre_pestaña):
+    try:
+        df = conn.read(worksheet=nombre_pestaña)
+        return df.fillna("")
+    except Exception:
+        return pd.DataFrame()
 
-def guardar_datos(archivo, df):
-    df.to_csv(archivo, index=False)
+# Cargar las tablas que me mostraste en la imagen
+usuarios_df = leer_pestaña("USUARIOS")
+miembros_df = leer_pestaña("MIEMBROS")
+asistencia_df = leer_pestaña("ASISTENCIA")
+oraciones_df = leer_pestaña("Oraciones")  
+finanzas_df = leer_pestaña("FINANZAS")
+chat_df = leer_pestaña("CHAT_LIDERES")
+eventos_df = leer_pestaña("EVENTOS")
 
-# --- Base de Datos Local de Usuarios ---
-# Copiado exactamente de tu código estable que sí funciona
-USUARIOS_LOCALES = [
-    {
-        "Nombre_Completo": "Jose Perez",
-        "Correo_Electronico": "perezajosef@gmail.com",
-        "Contraseña": "pastor123",
-        "Rol": "PASTOR"
-    }
-]
-usuarios_df = pd.DataFrame(USUARIOS_LOCALES)
+# Función técnica para transformar tablas de la iglesia en archivos descargables Excel
+def convertir_a_excel(df):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Reporte_Oficial')
+    return output.getvalue()
 
-# --- Módulo de Autenticación de Líderes ---
+# --- Módulo de Inicio de Sesión por Roles ---
 def autenticar():
     st.sidebar.title("🔐 Acceso Líderes")
-    if "usuario" not in st.session_state: 
+    if "usuario" not in st.session_state:
         st.session_state.usuario = None
-        
+
     if st.session_state.usuario is None:
-        email_input = st.sidebar.text_input("Correo Electrónico", key="login_email").strip().lower()
+        email_input = st.sidebar.text_input("Correo Electrónico", key="login_email").strip()
         pass_input = st.sidebar.text_input("Contraseña", type="password", key="login_pass").strip()
         
         if st.sidebar.button("Iniciar Sesión"):
-            user = usuarios_df[(usuarios_df["Correo_Electronico"] == email_input) & (usuarios_df["Contraseña"] == pass_input)]
-            
-            if not user.empty:
-                # --- ¡CORRECCIÓN CLAVE! Se extraen los datos usando el índice [0] seguro ---
-                st.session_state.usuario = {
-                    "Nombre": user.iloc[0]["Nombre_Completo"],
-                    "Rol": user.iloc[0]["Rol"]
-                }
-                st.rerun()
+            if not usuarios_df.empty and "Correo" in usuarios_df.columns and "Contraseña" in usuarios_df.columns:
+                usuarios_df["Correo"] = usuarios_df["Correo"].astype(str).str.strip()
+                usuarios_df["Contraseña"] = usuarios_df["Contraseña"].astype(str).str.strip()
+                
+                user_match = usuarios_df[(usuarios_df["Correo"] == email_input) & (usuarios_df["Contraseña"] == pass_input)]
+                
+                if not user_match.empty:
+                    # CORREGIDO: Forma nativa y segura de sacar los datos sin romper la indentación
+                    datos_usuario = user_match.to_dict(orient="records")[0]
+                    st.session_state.usuario = {
+                        "Nombre": str(datos_usuario.get("Nombre", "Líder")),
+                        "Rol": str(datos_usuario.get("Rol", "Servidor")).upper()
+                    }
+                    st.rerun()
+                else:
+                    st.sidebar.error("Correo o contraseña incorrectos.")
             else:
-                st.sidebar.error("Correo o contraseña incorrectos.")
+                st.sidebar.warning("Tabla 'USUARIOS' no disponible o sin columnas 'Correo'/'Contraseña'.")
     else:
         st.sidebar.success(f"Hola: {st.session_state.usuario.get('Nombre')}")
         st.sidebar.info(f"Rol: {st.session_state.usuario.get('Rol')}")
@@ -64,119 +75,138 @@ def autenticar():
             st.rerun()
     return st.session_state.usuario
 
-# --- Vistas del Sistema ---
+# --- 1. VISTA PÚBLICA (Anuncios de la Iglesia y Oraciones) ---
 def vista_publica():
     st.title("⛪ Herederos Iglesia Nacional")
+    st.subheader("Bienvenidos a nuestra comunidad")
+    
+    # Cartelera de Eventos
     st.markdown("### 📅 Próximos Eventos y Actividades")
-    st.info("Reunión General todos los Domingos - 10:00 AM")
+    if not eventos_df.empty:
+        for _, row in eventos_df.iterrows():
+            evento_nom = row.get("Evento", row.get("Título", "Actividad"))
+            evento_fec = row.get("Fecha", "Pronto")
+            st.info(f"**{evento_fec}** - {evento_nom}")
+    else:
+        st.write("Reunión General todos los Domingos - 10:00 AM")
         
     st.markdown("---")
+    
+    # Formulario Abierto de Oración (Pestaña 'Oraciones')
     st.subheader("🙏 Enviar Petición de Oración")
     with st.form("form_oracion", clear_on_submit=True):
-        nombre = st.text_input("Tu Nombre")
-        peticion = st.text_area("Petición")
-        if st.form_submit_button("Enviar"):
-            st.success("¡Petición procesada en el sistema!")
+        nombre_o = st.text_input("Tu Nombre (Opcional)")
+        peticion_o = st.text_area("¿Cuál es tu necesidad de oración?")
+        if st.form_submit_button("Enviar Petición"):
+            if peticion_o.strip():
+                nueva_fila = pd.DataFrame([{
+                    "Nombre": nombre_o.strip() if nombre_o.strip() else "Anónimo",
+                    "Peticion": peticion_o.strip(),
+                    "Fecha": datetime.now().strftime("%Y-%m-%d")
+                }])
+                updated_df = pd.concat([oraciones_df, nueva_fila], ignore_index=True)
+                conn.update(worksheet="Oraciones", data=updated_df)
+                st.success("¡Petición enviada! Estaremos orando por ti.")
+                st.rerun()
 
+# --- 2. PANEL DE CONSOLIDACIÓN Y ASISTENCIA ---
 def panel_consolidacion():
-    st.markdown("## 👥 Módulo de Consolidación")
-    st.success("Panel de administración activo. Interfaz lista para operar.")
+    st.markdown("## 👥 Módulo de Consolidación y Miembros")
     
-    # Cargar base de datos interna de miembros
-    df_m = cargar_datos(DB_MIEMBROS, ["ID", "Nombre Completo", "Teléfono", "Cédula", "Estado"])
-    
-    # Formulario para capturar nuevos creyentes
+    # Registrar miembro en la pestaña 'MIEMBROS'
+    st.subheader("📝 Registrar Nuevo Creyente")
     with st.form("form_registro_miembro", clear_on_submit=True):
-        nombre_m = st.text_input("Nombre Completo del Miembro")
-        tel_m = st.text_input("Número de Teléfono")
-        cedula_m = st.text_input("Número de Cédula")
-        estado_m = st.selectbox("Estado de Consolidación", ["Nuevo Convertido", "En Consolidación", "Miembro Activo"])
-        
-        if st.form_submit_button("Guardar Miembro") and nombre_m.strip():
-            nuevo_id = len(df_m) + 1
-            nueva_fila = pd.DataFrame([{"ID": nuevo_id, "Nombre Completo": nombre_m.strip(), "Teléfono": tel_m.strip(), "Cédula": cedula_m.strip(), "Estado": estado_m}])
-            df_m = pd.concat([df_m, nueva_fila], ignore_index=True)
-            guardar_datos(DB_MIEMBROS, df_m)
-            st.success(f"¡{nombre_m} registrado exitosamente!")
+        nombre_m = st.text_input("Nombre Completo")
+        tel_m = st.text_input("Teléfono")
+        cedula_m = st.text_input("Cédula")
+        if st.form_submit_button("Guardar en Censo") and nombre_m.strip():
+            col_id = "ID Miembro" if "ID Miembro" in miembros_df.columns else "ID"
+            col_nom = "Nombre Completo" if "Nombre Completo" in miembros_df.columns else "Nombre"
+            
+            nueva_fila = pd.DataFrame([{
+                col_id: len(miembros_df) + 1,
+                col_nom: nombre_m.strip(),
+                "Teléfono": tel_m.strip(),
+                "Cedula": cedula_m.strip(),
+                "Estado": "Activo"
+            }])
+            updated_df = pd.concat([miembros_df, nueva_fila], ignore_index=True)
+            conn.update(worksheet="MIEMBROS", data=updated_df)
+            st.success(f"¡{nombre_m} registrado con éxito!")
+            st.rerun()
+
+    st.markdown("---")
+    
+    # Control de Asistencia Semanal (Pestaña 'ASISTENCIA')
+    st.subheader("✔️ Control de Asistencia")
+    col_nom_m = "Nombre Completo" if "Nombre Completo" in miembros_df.columns else "Nombre"
+    if not miembros_df.empty and col_nom_m in miembros_df.columns:
+        fecha_c = st.date_input("Fecha del Servicio/Culto", datetime.now())
+        presentes = st.multiselect("Miembros presentes hoy:", miembros_df[col_nom_m].dropna().tolist())
+        if st.button("Guardar Lista de Asistencia"):
+            col_asist_nom = "Nombre Completo" if "Nombre Completo" in asistencia_df.columns else "Nombre"
+            nuevos_registros = pd.DataFrame([{
+                "Fecha": fecha_c.strftime("%Y-%m-%d"),
+                col_asist_nom: p,
+                "Asistió": "Sí"
+            } for p in presentes])
+            updated_df = pd.concat([asistencia_df, nuevos_registros], ignore_index=True)
+            conn.update(worksheet="ASISTENCIA", data=updated_df)
+            st.success("¡Asistencia guardada!")
             st.rerun()
             
     st.markdown("---")
-    st.subheader("📋 Miembros Registrados Recientemente")
-    if not df_m.empty:
-        st.dataframe(df_m, use_container_width=True)
-    else:
-        st.caption("No hay miembros registrados aún.")
+    if not miembros_df.empty:
+        st.dataframe(miembros_df, use_container_width=True)
+        excel_data = convertir_a_excel(miembros_df)
+        st.download_button(label="📥 Descargar Base de Miembros (Excel)", data=excel_data, file_name="Censo_Miembros.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+# --- 3. PANEL GESTIÓN FINANCIERA (Pestaña 'FINANZAS') ---
 def panel_financiero():
-    st.markdown("## 💰 Módulo de Finanzas")
-    st.success("Panel financiero activo. Control de ingresos y egresos.")
-    
-    # Cargar base de datos interna contable
-    df_f = cargar_datos(DB_FINANZAS, ["Fecha", "Tipo", "Monto", "Sede", "Detalle"])
-    
-    with st.form("form_registro_finanzas", clear_on_submit=True):
-        tipo_f = st.selectbox("Tipo de Movimiento", ["Ingreso (Diezmo / Ofrenda)", "Egreso (Gasto)"])
+    st.markdown("## 💰 Módulo de Finanzas (Ingresos y Egresos)")
+    with st.form("form_finanzas", clear_on_submit=True):
+        tipo_f = st.selectbox("Tipo de Movimiento", ["Ingreso", "Egreso"])
+        cat_f = st.text_input("Categoría (Ej: Diezmo, Ofrenda, Luz, Misiones)")
         monto_f = st.number_input("Monto ($)", min_value=0.0, step=1.0)
-        sede_f = st.selectbox("Sede", ["Sede Central", "Sedes Locales"])
-        detalle_f = st.text_area("Concepto / Detalle")
+        sede_f = st.selectbox("Sede de la Iglesia", ["Sede Central", "Sede Norte", "Sede Sur", "Sede Este"])
+        detalle_f = st.text_area("Detalle / Concepto")
         
         if st.form_submit_button("Registrar Movimiento") and monto_f > 0:
-            nueva_fila = pd.DataFrame([{"Fecha": datetime.now().strftime("%Y-%m-%d"), "Tipo": tipo_f, "Monto": monto_f, "Sede": sede_f, "Detalle": detalle_f.strip()}])
-            df_f = pd.concat([df_f, nueva_fila], ignore_index=True)
-            guardar_datos(DB_FINANZAS, df_f)
-            st.success("¡Movimiento contable registrado con éxito!")
+            nueva_fila = pd.DataFrame([{
+                "Fecha": datetime.now().strftime("%Y-%m-%d"),
+                "Tipo": tipo_f,
+                "Categoría": cat_f.strip(),
+                "Monto": monto_f,
+                "Sede": sede_f,
+                "Detalle": detalle_f.strip()
+            }])
+            updated_df = pd.concat([finanzas_df, nueva_fila], ignore_index=True)
+            conn.update(worksheet="FINANZAS", data=updated_df)
+            st.success("¡Movimiento financiero guardado!")
             st.rerun()
             
     st.markdown("---")
-    st.subheader("📊 Historial Contable Reciente")
-    if not df_f.empty:
-        st.dataframe(df_f, use_container_width=True)
-    else:
-        st.caption("No hay movimientos contables registrados hoy.")
+    if not finanzas_df.empty:
+        st.dataframe(finanzas_df, use_container_width=True)
+        excel_finanzas = convertir_a_excel(finanzas_df)
+        st.download_button(label="📥 Descargar Reporte Financiero (Excel)", data=excel_finanzas, file_name="Libro_Finanzas.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-def sala_chat(usuario_actual):
+# --- 4. PANEL CHAT INTERNO DE LÍDERES (Pestaña 'CHAT_LIDERES') ---
+def panel_chat(usuario_actual):
     st.markdown("## 💬 Chat Interno de Líderes")
-    st.success("Muro de mensajes activo para coordinación técnica.")
-    
-    # Cargar historial del chat interno
-    df_c = cargar_datos(DB_CHAT, ["Fecha", "De", "Mensaje"])
-    
-    with st.form("form_enviar_chat", clear_on_submit=True):
-        mensaje_c = st.text_input("Escribe un mensaje para el equipo:")
-        if st.form_submit_button("Enviar al Muro") and mensaje_c.strip():
-            nuevo_msg = pd.DataFrame([{"Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"), "De": usuario_actual["Nombre"], "Mensaje": mensaje_c.strip()}])
-            df_c = pd.concat([df_c, nuevo_msg], ignore_index=True)
-            guardar_datos(DB_CHAT, df_c)
+    with st.form("form_chat", clear_on_submit=True):
+        msg = st.text_input("Escribe un mensaje para el equipo:")
+        if st.form_submit_button("Enviar al Muro") and msg.strip():
+            nueva_fila = pd.DataFrame([{
+                "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "Usuario": usuario_actual["Nombre"],
+                "Mensaje": msg.strip()
+            }])
+            updated_df = pd.concat([chat_df, nueva_fila], ignore_index=True)
+            conn.update(worksheet="CHAT_LIDERES", data=updated_df)
             st.rerun()
             
     st.markdown("---")
-    if not df_c.empty:
-        # Mostrar los últimos 15 mensajes en orden cronológico inverso (el más nuevo arriba)
-        for _, row in df_c.tail(15).iloc[::-1].iterrows():
-            st.markdown(f"🔹 **{row['De']}** *({row['Fecha']})*")
-            st.info(row['Mensaje'])
-    else:
-        st.caption("No hay mensajes en la sala de chat de líderes.")
-
-# --- Controlador Central ---
-def main():
-    usuario = autenticar()
-    if usuario is None:
-        vista_publica()
-    else:
-        rol = str(usuario.get("Rol", "servidor")).strip().lower()
-        menu = ["Inicio / Eventos"]
-        if rol in ["pastor", "líder", "lider", "servidor"]:
-            menu.append("Consolidación y Asistencia")
-        if rol in ["pastor", "tesorero"]:
-            menu.append("Gestión Financiera")
-        menu.append("Chat de Líderes")
-        
-        opcion = st.selectbox("Selecciona Módulo:", menu)
-        if opcion == "Inicio / Eventos": vista_publica()
-        elif opcion == "Consolidación y Asistencia": panel_consolidacion()
-        elif opcion == "Gestión Financiera": panel_financiero()
-        elif opcion == "Chat de Líderes": sala_chat(usuario)
-
-if __name__ == "__main__":
-    main()
+    if not chat_df.empty:
+        for _, row in chat_df.tail(15).iloc[::-1].iterrows():
+            usuario_msg = row.get('Usuario', row.get('De', 'Líder'))
