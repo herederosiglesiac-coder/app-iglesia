@@ -20,14 +20,13 @@ def leer_pestaña(nombre_pestaña):
         df = conn.read(worksheet=nombre_pestaña)
         return df.fillna("")
     except Exception:
-        # Si la pestaña no tiene datos, crea una estructura básica para evitar pantallas en blanco
         return pd.DataFrame()
 
 # Cargar las tablas que me mostraste en la imagen
 usuarios_df = leer_pestaña("USUARIOS")
 miembros_df = leer_pestaña("MIEMBROS")
 asistencia_df = leer_pestaña("ASISTENCIA")
-oraciones_df = leer_pestaña("Oraciones")  # Respeta tu mayúscula inicial 'Oraciones'
+oraciones_df = leer_pestaña("Oraciones")  
 finanzas_df = leer_pestaña("FINANZAS")
 chat_df = leer_pestaña("CHAT_LIDERES")
 eventos_df = leer_pestaña("EVENTOS")
@@ -51,7 +50,6 @@ def autenticar():
         
         if st.sidebar.button("Iniciar Sesión"):
             if not usuarios_df.empty and "Correo" in usuarios_df.columns and "Contraseña" in usuarios_df.columns:
-                # Filtrado seguro convirtiendo a texto
                 usuarios_df["Correo"] = usuarios_df["Correo"].astype(str).str.strip()
                 usuarios_df["Contraseña"] = usuarios_df["Contraseña"].astype(str).str.strip()
                 
@@ -209,4 +207,8 @@ def panel_chat(usuario_actual):
     st.markdown("---")
     if not chat_df.empty:
         for _, row in chat_df.tail(15).iloc[::-1].iterrows():
+            usuario_msg = row.get('Usuario', row.get('De', 'Líder'))
+            fecha_msg = row.get('Fecha', '')
+            texto_msg = row.get('Mensaje', '')
+            st.write(f"🔹 **{usuario_msg}** ({fecha_msg}): {texto_msg}")
 
