@@ -1,27 +1,24 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 
-# Configuración de la página para dispositivos móviles
+# --- Configuración ---
 st.set_page_config(page_title="Herederos Iglesia Nacional", layout="centered")
+URL_SHEET = "https://google.com"
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-# URL Base de tu Google Sheet (Extraída de tu enlace público)
-# Al usar la exportación directa en formato CSV, rompemos cualquier bloqueo técnico del servidor.
-BASE_URL = "https://google.com"
-# --------- Carga de Datos Directa e Infalible -------------
+# --- Carga de Datos ---
+@st.cache_data(ttl=30)
 def load_sheet_data(worksheet_name):
     try:
-        # Transformamos el enlace para descargar la pestaña exacta directamente como texto CSV
-        csv_url = f"{BASE_URL}/gviz/tq?tqx=out:csv&sheet={worksheet_name}"
-        df = pd.read_csv(csv_url)
-        # Limpiar columnas vacías que a veces genera Google Sheets
-        df = df.dropna(how='all', axis=1)
-        return df
+        # Se forza la lectura directa con la URL proporcionada
+        return conn.read(spreadsheet=URL_SHEET, worksheet=worksheet_name)
     except Exception as e:
-        st.error(f"Error al leer la pestaña {worksheet_name}: {e}")
+        st.error(f"Error al conectar con {worksheet_name}. Revisa los permisos.")
         return pd.DataFrame()
 
-# Cargar todas las fuentes de datos exactas de tus pestañas reales
+# Carga de hojas
 usuarios_df = load_sheet_data("USUARIOS")
 miembros_df = load_sheet_data("MIEMBROS")
 asistencia_df = load_sheet_data("ASISTENCIA")
@@ -30,100 +27,84 @@ finanzas_df = load_sheet_data("FINANZAS")
 chat_df = load_sheet_data("CHAT_LIDERES")
 eventos_df = load_sheet_data("EVENTOS")
 
-# --------- Módulo de Autenticación de Roles -------------
+# --- Funciones de Interfaz ---
 def autenticar():
     st.sidebar.title("🔐 Acceso Líderes")
-    if "usuario" not in st.session_state:
-        st.session_state.usuario = None
-
+    if "usuario" not in st.session_state: st.session_state.usuario = None
     if st.session_state.usuario is None:
-        email = st.sidebar.text_input("Correo Electrónico", key="login_email")
+        email = st.sidebar.text_input("Correo", key="login_email")
         password = st.sidebar.text_input("Contraseña", type="password", key="login_pass")
-        
         if st.sidebar.button("Iniciar Sesión"):
-            # Diagnóstico visual en caso de que las tablas sigan llegando con problemas
-            if usuarios_df.empty:
-                st.sidebar.error("Error: La tabla de USUARIOS no devolvió datos. Verifica la conexión.")
-                return None
-                
-            if "Correo_Electronico" in usuarios_df.columns and "Contraseña" in usuarios_df.columns:
-                # Filtrar ignorando espacios vacíos
-                user = usuarios_df[(usuarios_df["Correo_Electronico"].astype(str).str.strip() == email.strip()) & 
-                                   (usuarios_df["Contraseña"].astype(str).str.strip() == str(password).strip())]
-                if not user.empty:
-                    st.session_state.usuario = user.iloc[0].to_dict()
-                    st.rerun()
-                else:
-                    st.sidebar.error("Usuario o contraseña incorrectos.")
-            else:
-                st.sidebar.error("Error técnico: Columnas inválidas en la tabla de USUARIOS.")
-                st.sidebar.write("Columnas leídas reales:", list(usuarios_df.columns))
+            user = usuarios_df[(usuarios_df["Correo"].astype(str) == str(email)) & (usuarios_df["Contraseña"].astype(str) == str(password))]
+            if not user.empty:
+                st.session_state.usuario = user.iloc[0].to_dict()
+                st.rerun()
+            else: st.sidebar.error("Credenciales incorrectas.")
     else:
-        st.sidebar.success(f"Bienvenido: {st.session_state.usuario.get('Nombre_Completo', 'Líder')}")
-        st.sidebar.info(f"Rol: {st.session_state.usuario.get('Rol', 'Usuario')}")
+        st.sidebar.success(f"Hola: {st.session_state.usuario.get('Nombre')}")
         if st.sidebar.button("Cerrar Sesión"):
             st.session_state.usuario = None
             st.rerun()
     return st.session_state.usuario
 
-# --------- Vistas de la Aplicación -------------
 def vista_publica():
-    st.title(" ⛪ Herederos Iglesia Nacional")
-    st.subheader("Bienvenidos a nuestra comunidad")
-    
-    st.markdown("### 📅 Próximos Eventos y Actividades")
+    st.title("⛪ Herederos Iglesia Nacional")
+    st.markdown("### 📅 Próximos Eventos")
     if not eventos_df.empty:
         for _, row in eventos_df.iterrows():
-            st.info(f"**{row.iloc[0]}** - {row.iloc[1] if len(row) > 1 else 'Actividad'}")
-    else:
-        st.write("No hay eventos programados para esta semana.")
-
+            st.info(f"**{row.get('Fecha')}** - {row.get('Evento')}")
     st.markdown("---")
-    st.subheader("🙏 Enviar Petición de Oración")
+    st.subheader("🙏 Enviar Petición")
     with st.form("form_oracion", clear_on_submit=True):
-        nombre = st.text_input("Tu Nombre (Opcional)")
-        peticion = st.text_area("¿Por qué necesidad te gustaría que oremos?")
-        enviar = st.form_submit_button("Enviar Petición")
-        if enviar and peticion.strip():
-            st.success("¡Petición enviada! El sistema se ha conectado exitosamente.")
+        nombre = st.text_input("Nombre")
+        peticion = st.text_area("Necesidad")
+        if st.form_submit_button("Enviar"):
+            nueva_fila = pd.DataFrame([{"Nombre": nombre or "Anónimo", "Peticion": peticion, "Fecha": datetime.now().strftime("%Y-%m-%d")}])
+            updated_df = pd.concat([oraciones_df, nueva_fila], ignore_index=True)
+            conn.update(spreadsheet=URL_SHEET, worksheet="Oraciones", data=updated_df)
+            st.success("Petición enviada.")
 
-# Módulos de administración simulados para visualización por el cambio de conector
+# --- Módulos (Consolidación, Finanzas, Chat) con actualización de URL ---
 def panel_consolidacion():
-    st.markdown("## 👥 Módulo de Consolidación")
-    st.subheader("📝 Registrar Nuevo Creyente")
-    st.info("Conexión directa establecida. Listo para registrar miembros.")
+    st.markdown("## 👥 Consolidación")
+    with st.form("form_miembros", clear_on_submit=True):
+        nombre_m = st.text_input("Nombre Completo")
+        if st.form_submit_button("Guardar"):
+            nueva_fila = pd.DataFrame([{"Nombre Completo": nombre_m, "Estado": "Activo"}])
+            updated_df = pd.concat([miembros_df, nueva_fila], ignore_index=True)
+            conn.update(spreadsheet=URL_SHEET, worksheet="MIEMBROS", data=updated_df)
+            st.success("Registrado.")
 
 def panel_financiero():
-    st.markdown("## 💰 Módulo de Finanzas")
-    st.info("Formulario financiero enlazado directamente a la pestaña FINANZAS.")
+    st.markdown("## 💰 Finanzas")
+    with st.form("form_finanzas", clear_on_submit=True):
+        monto_f = st.number_input("Monto ($)", min_value=0.0)
+        if st.form_submit_button("Registrar"):
+            nueva_fila = pd.DataFrame([{"Monto": monto_f, "Tipo": "Ingreso"}])
+            updated_df = pd.concat([finanzas_df, nueva_fila], ignore_index=True)
+            conn.update(spreadsheet=URL_SHEET, worksheet="FINANZAS", data=updated_df)
+            st.success("Registrado.")
 
 def sala_chat(usuario_actual):
-    st.markdown("## 💬 Chat de Líderes")
-    st.info("Sala de chat interna activa.")
+    st.markdown("## 💬 Chat")
+    with st.form("form_chat", clear_on_submit=True):
+        msg = st.text_input("Mensaje")
+        if st.form_submit_button("Enviar"):
+            nueva_fila = pd.DataFrame([{"Usuario": usuario_actual.get("Nombre"), "Mensaje": msg}])
+            updated_df = pd.concat([chat_df, nueva_fila], ignore_index=True)
+            conn.update(spreadsheet=URL_SHEET, worksheet="CHAT_LIDERES", data=updated_df)
+            st.rerun()
 
-# --------- CONTROLADOR CENTRAL DE LA APP -------------
+# --- Main ---
 def main():
     usuario = autenticar()
-    if usuario is None:
-        vista_publica()
+    if usuario is None: vista_publica()
     else:
-        rol = usuario.get("Rol", "Servidor")
-        menu = ["Inicio / Oraciones"]
-        if str(rol).upper() in ["PASTOR", "LÍDER", "SERVIDOR"]:
-            menu.append("Consolidación y Asistencia")
-        if str(rol).upper() in ["PASTOR", "TESORERO"]:
-            menu.append("Gestión Financiera")
-        menu.append("Chat de Líderes")
-        
-        opcion = st.selectbox("Selecciona el módulo de trabajo:", menu)
-        if opcion == "Inicio / Oraciones":
-            vista_publica()
-        elif opcion == "Consolidación y Asistencia":
-            panel_consolidacion()
-        elif opcion == "Gestión Financiera":
-            panel_financiero()
-        elif opcion == "Chat de Líderes":
-            sala_chat(usuario)
+        opcion = st.sidebar.selectbox("Módulo", ["Inicio", "Consolidación", "Finanzas", "Chat"])
+        if opcion == "Inicio": vista_publica()
+        elif opcion == "Consolidación": panel_consolidacion()
+        elif opcion == "Finanzas": panel_financiero()
+        elif opcion == "Chat": sala_chat(usuario)
 
 if __name__ == "__main__":
     main()
