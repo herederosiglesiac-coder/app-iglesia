@@ -2,17 +2,20 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import os
+from io import BytesIO
 
 # --- Configuración Base de la Pantalla ---
 st.set_page_config(page_title="Herederos Iglesia Nacional", layout="centered")
 
-# --- Bases de Datos Internas de la Aplicación ---
+# --- Base de Datos Interna de la App (Segura y Libre de Bloqueos) ---
 DB_MIEMBROS = "db_miembros.csv"
 DB_ASISTENCIA = "db_asistencia.csv"
 DB_FINANZAS = "db_finanzas.csv"
-DB_CHAT = "db_chat.csv"  # <- Base de datos interna para el Chat
+DB_EVENTOS = "db_eventos.csv"
+DB_ORACIONES = "db_oraciones.csv"
+DB_CHAT = "db_chat.csv"
 
-# Funciones de utilidad seguras para cargar y guardar información
+# Funciones de utilidad para leer y escribir datos sin intermediarios
 def cargar_datos(archivo, columnas):
     if os.path.exists(archivo):
         try: return pd.read_csv(archivo)
@@ -22,40 +25,35 @@ def cargar_datos(archivo, columnas):
 def guardar_datos(archivo, df):
     df.to_csv(archivo, index=False)
 
+# Función técnica para transformar tablas en archivos descargables de Excel
+def convertir_a_excel(df):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Reporte_Oficial')
+    return output.getvalue()
+
 # --- Base de Datos Local de Usuarios ---
-# Copiado exactamente de tu código estable que sí funciona
 USUARIOS_LOCALES = [
-    {
-        "Nombre_Completo": "Jose Perez",
-        "Correo_Electronico": "perezajosef@gmail.com",
-        "Contraseña": "pastor123",
-        "Rol": "PASTOR"
-    }
+    {"Nombre_Completo": "Jose Perez", "Correo_Electronico": "perezajosef@gmail.com", "Contraseña": "pastor123", "Rol": "PASTOR"}
 ]
 usuarios_df = pd.DataFrame(USUARIOS_LOCALES)
 
 # --- Módulo de Autenticación de Líderes ---
 def autenticar():
     st.sidebar.title("🔐 Acceso Líderes")
-    if "usuario" not in st.session_state: 
-        st.session_state.usuario = None
-        
+    if "usuario" not in st.session_state: st.session_state.usuario = None
     if st.session_state.usuario is None:
         email_input = st.sidebar.text_input("Correo Electrónico", key="login_email").strip().lower()
         pass_input = st.sidebar.text_input("Contraseña", type="password", key="login_pass").strip()
-        
         if st.sidebar.button("Iniciar Sesión"):
             user = usuarios_df[(usuarios_df["Correo_Electronico"] == email_input) & (usuarios_df["Contraseña"] == pass_input)]
-            
             if not user.empty:
-                # --- ¡CORRECCIÓN CLAVE! Se extraen los datos usando el índice [0] seguro ---
                 st.session_state.usuario = {
                     "Nombre": user.iloc[0]["Nombre_Completo"],
                     "Rol": user.iloc[0]["Rol"]
                 }
                 st.rerun()
-            else:
-                st.sidebar.error("Correo o contraseña incorrectos.")
+            else: st.sidebar.error("Correo o contraseña incorrectos.")
     else:
         st.sidebar.success(f"Hola: {st.session_state.usuario.get('Nombre')}")
         st.sidebar.info(f"Rol: {st.session_state.usuario.get('Rol')}")
@@ -64,119 +62,133 @@ def autenticar():
             st.rerun()
     return st.session_state.usuario
 
-# --- Vistas del Sistema ---
+# --- 1. VISTA PÚBLICA (Eventos, Transmisiones y Oraciones) ---
 def vista_publica():
     st.title("⛪ Herederos Iglesia Nacional")
-    st.markdown("### 📅 Próximos Eventos y Actividades")
-    st.info("Reunión General todos los Domingos - 10:00 AM")
+    
+    # Cartelera Dinámica de Eventos y Videos de YouTube
+    st.markdown("### 📅 Cartelera Digital y Transmisiones")
+    df_e = cargar_datos(DB_EVENTOS, ["Fecha", "Título", "Tipo", "Enlace_Multimedia"])
+    if not df_e.empty:
+        for _, row in df_e.iterrows():
+            with st.expander(f"🔹 {row['Fecha']} - {row['Título']} ({row['Tipo']})"):
+                st.write("Recurso disponible para la congregación:")
+                url_m = str(row['Enlace_Multimedia']).strip()
+                if url_m and url_m != "nan" and url_m != "":
+                    if "youtube.com" in url_m or "youtu.be" in url_m:
+                        st.video(url_m)
+                    else:
+                        st.link_button("🌐 Abrir Enlace Externo / Material", url_m)
+                else:
+                    st.caption("Este evento no incluye material multimedia.")
+    else:
+        st.info("Reunión General todos los Domingos - 10:00 AM")
         
     st.markdown("---")
-    st.subheader("🙏 Enviar Petición de Oración")
-    with st.form("form_oracion", clear_on_submit=True):
-        nombre = st.text_input("Tu Nombre")
-        peticion = st.text_area("Petición")
-        if st.form_submit_button("Enviar"):
-            st.success("¡Petición procesada en el sistema!")
-
-def panel_consolidacion():
-    st.markdown("## 👥 Módulo de Consolidación")
-    st.success("Panel de administración activo. Interfaz lista para operar.")
     
-    # Cargar base de datos interna de miembros
+    # Buzón Público de Peticiones de Oración
+    st.subheader("🙏 Enviar Petición de Oración")
+    df_o = cargar_datos(DB_ORACIONES, ["Fecha", "Nombre", "Petición"])
+    with st.form("form_oracion", clear_on_submit=True):
+        nombre_o = st.text_input("Tu Nombre (Opcional)")
+        peticion_o = st.text_area("¿Cuál es tu necesidad o motivo de oración?")
+        if st.form_submit_button("Enviar Petición al Equipo"):
+            if peticion_o.strip():
+                nueva_o = pd.DataFrame([{"Fecha": datetime.now().strftime("%Y-%m-%d"), "Nombre": nombre_o.strip() or "Anónimo", "Petición": peticion_o.strip()}])
+                df_o = pd.concat([df_o, nueva_o], ignore_index=True)
+                guardar_datos(DB_ORACIONES, df_o)
+                st.success("¡Petición guardada! Nuestro equipo de líderes estará intercediendo por ti.")
+                st.rerun()
+
+# --- 2. PANEL DE CONSOLIDACIÓN Y ASISTENCIA ---
+def panel_consolidacion():
+    st.markdown("## 👥 Módulo de Consolidación y Miembros")
     df_m = cargar_datos(DB_MIEMBROS, ["ID", "Nombre Completo", "Teléfono", "Cédula", "Estado"])
     
-    # Formulario para capturar nuevos creyentes
+    # Formulario de Miembros
+    st.subheader("📝 Registrar Nuevo Creyente")
     with st.form("form_registro_miembro", clear_on_submit=True):
-        nombre_m = st.text_input("Nombre Completo del Miembro")
+        nombre_m = st.text_input("Nombre Completo")
         tel_m = st.text_input("Número de Teléfono")
         cedula_m = st.text_input("Número de Cédula")
-        estado_m = st.selectbox("Estado de Consolidación", ["Nuevo Convertido", "En Consolidación", "Miembro Activo"])
-        
-        if st.form_submit_button("Guardar Miembro") and nombre_m.strip():
-            nuevo_id = len(df_m) + 1
-            nueva_fila = pd.DataFrame([{"ID": nuevo_id, "Nombre Completo": nombre_m.strip(), "Teléfono": tel_m.strip(), "Cédula": cedula_m.strip(), "Estado": estado_m}])
+        estado_m = st.selectbox("Estado actual", ["Nuevo Convertido", "En Consolidación", "Miembro Activo"])
+        if st.form_submit_button("Guardar en Censo") and nombre_m.strip():
+            nueva_fila = pd.DataFrame([{"ID": len(df_m) + 1, "Nombre Completo": nombre_m.strip(), "Teléfono": tel_m.strip(), "Cédula": cedula_m.strip(), "Estado": estado_m}])
             df_m = pd.concat([df_m, nueva_fila], ignore_index=True)
             guardar_datos(DB_MIEMBROS, df_m)
             st.success(f"¡{nombre_m} registrado exitosamente!")
             st.rerun()
-            
+
     st.markdown("---")
-    st.subheader("📋 Miembros Registrados Recientemente")
+    
+    # Control de Asistencia Semanal
+    st.subheader("✔️ Control de Asistencia")
+    if not df_m.empty:
+        fecha_c = st.date_input("Fecha del Servicio/Culto", datetime.now())
+        presentes = st.multiselect("Selecciona los miembros presentes hoy:", df_m["Nombre Completo"].tolist())
+        if st.button("Guardar Lista de Asistencia"):
+            df_a = cargar_datos(DB_ASISTENCIA, ["Fecha", "Nombre Completo", "Asistió"])
+            nuevos = pd.DataFrame([{"Fecha": fecha_c.strftime("%Y-%m-%d"), "Nombre Completo": p, "Asistió": "Sí"} for p in presentes])
+            df_a = pd.concat([df_a, nuevos], ignore_index=True)
+            guardar_datos(DB_ASISTENCIA, df_a)
+            st.success("¡Asistencia del día guardada exitosamente!")
+    else:
+        st.info("Registra miembros arriba para poder pasar asistencia.")
+
+    st.markdown("---")
+    st.subheader("📋 Lista General de la Congregación")
     if not df_m.empty:
         st.dataframe(df_m, use_container_width=True)
+        # BOTÓN AVANZADO: Exportar lista completa de la iglesia a Excel
+        excel_data = convertir_a_excel(df_m)
+        st.download_button(label="📥 Descargar Base de Miembros (Excel)", data=excel_data, file_name=f"Censo_Miembros_{datetime.now().strftime('%Y-%m-%d')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else:
         st.caption("No hay miembros registrados aún.")
 
+# --- 3. PANEL GESTIÓN FINANCIERA ---
 def panel_financiero():
-    st.markdown("## 💰 Módulo de Finanzas")
-    st.success("Panel financiero activo. Control de ingresos y egresos.")
+    st.markdown("## 💰 Módulo de Finanzas (Ingresos y Egresos)")
+    df_f = cargar_datos(DB_FINANZAS, ["Fecha", "Tipo", "Categoría", "Monto", "Sede", "Detalle"])
     
-    # Cargar base de datos interna contable
-    df_f = cargar_datos(DB_FINANZAS, ["Fecha", "Tipo", "Monto", "Sede", "Detalle"])
-    
-    with st.form("form_registro_finanzas", clear_on_submit=True):
-        tipo_f = st.selectbox("Tipo de Movimiento", ["Ingreso (Diezmo / Ofrenda)", "Egreso (Gasto)"])
-        monto_f = st.number_input("Monto ($)", min_value=0.0, step=1.0)
-        sede_f = st.selectbox("Sede", ["Sede Central", "Sedes Locales"])
-        detalle_f = st.text_area("Concepto / Detalle")
+    # Formulario Contable
+    with st.form("form_finanzas", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            tipo_f = st.selectbox("Tipo de Movimiento", ["Ingreso (Diezmo/Ofrenda)", "Egreso (Gasto)"])
+            cat_f = st.text_input("Categoría (Ej: Diezmos, Ofrendas, Luz, Eventos, Misiones)")
+            monto_f = st.number_input("Monto ($)", min_value=0.0, step=1.0)
+        with col2:
+            # SEDES REALES CONFIGURADAS
+            sede_f = st.selectbox("Sede de la Iglesia", ["Sede Central", "Sede Norte", "Sede Sur", "Sede Este"])
+            detalle_f = st.text_area("Concepto / Descripción del movimiento")
         
-        if st.form_submit_button("Registrar Movimiento") and monto_f > 0:
-            nueva_fila = pd.DataFrame([{"Fecha": datetime.now().strftime("%Y-%m-%d"), "Tipo": tipo_f, "Monto": monto_f, "Sede": sede_f, "Detalle": detalle_f.strip()}])
-            df_f = pd.concat([df_f, nueva_fila], ignore_index=True)
+        if st.form_submit_button("Registrar en Libros Contables") and monto_f > 0:
+            nuevo_mov = pd.DataFrame([{"Fecha": datetime.now().strftime("%Y-%m-%d"), "Tipo": tipo_f, "Categoría": cat_f.strip(), "Monto": monto_f, "Sede": sede_f, "Detalle": detalle_f.strip()}])
+            df_f = pd.concat([df_f, nuevo_mov], ignore_index=True)
             guardar_datos(DB_FINANZAS, df_f)
-            st.success("¡Movimiento contable registrado con éxito!")
+            st.success("¡Movimiento financiero archivado correctamente!")
             st.rerun()
             
     st.markdown("---")
-    st.subheader("📊 Historial Contable Reciente")
+    st.subheader("📊 Historial Contable")
     if not df_f.empty:
         st.dataframe(df_f, use_container_width=True)
+        # BOTÓN AVANZADO: Descargar el libro de finanzas completo a Excel
+        excel_finanzas = convertir_a_excel(df_f)
+        st.download_button(label="📥 Descargar Reporte Financiero (Excel)", data=excel_finanzas, file_name=f"Libro_Finanzas_{datetime.now().strftime('%Y-%m-%d')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else:
-        st.caption("No hay movimientos contables registrados hoy.")
+        st.caption("No hay registros contables en los libros de la aplicación.")
 
-def sala_chat(usuario_actual):
-    st.markdown("## 💬 Chat Interno de Líderes")
-    st.success("Muro de mensajes activo para coordinación técnica.")
+# --- 4. PANEL DE PUBLICACIÓN DE EVENTOS Y MULTIMEDIA ---
+def panel_eventos():
+    st.markdown("## 🎬 Administración de Eventos y Multimedia")
+    st.write("Desde aquí controlas los videos y anuncios que ve la congregación al abrir la aplicación.")
+    df_e = cargar_datos(DB_EVENTOS, ["Fecha", "Título", "Tipo", "Enlace_Multimedia"])
     
-    # Cargar historial del chat interno
-    df_c = cargar_datos(DB_CHAT, ["Fecha", "De", "Mensaje"])
-    
-    with st.form("form_enviar_chat", clear_on_submit=True):
-        mensaje_c = st.text_input("Escribe un mensaje para el equipo:")
-        if st.form_submit_button("Enviar al Muro") and mensaje_c.strip():
-            nuevo_msg = pd.DataFrame([{"Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"), "De": usuario_actual["Nombre"], "Mensaje": mensaje_c.strip()}])
-            df_c = pd.concat([df_c, nuevo_msg], ignore_index=True)
-            guardar_datos(DB_CHAT, df_c)
-            st.rerun()
-            
-    st.markdown("---")
-    if not df_c.empty:
-        # Mostrar los últimos 15 mensajes en orden cronológico inverso (el más nuevo arriba)
-        for _, row in df_c.tail(15).iloc[::-1].iterrows():
-            st.markdown(f"🔹 **{row['De']}** *({row['Fecha']})*")
-            st.info(row['Mensaje'])
-    else:
-        st.caption("No hay mensajes en la sala de chat de líderes.")
-
-# --- Controlador Central ---
-def main():
-    usuario = autenticar()
-    if usuario is None:
-        vista_publica()
-    else:
-        rol = str(usuario.get("Rol", "servidor")).strip().lower()
-        menu = ["Inicio / Eventos"]
-        if rol in ["pastor", "líder", "lider", "servidor"]:
-            menu.append("Consolidación y Asistencia")
-        if rol in ["pastor", "tesorero"]:
-            menu.append("Gestión Financiera")
-        menu.append("Chat de Líderes")
+    with st.form("form_eventos", clear_on_submit=True):
+        titulo_e = st.text_input("Título de la Actividad / Nombre del Sermón")
+        tipo_e = st.selectbox("Tipo de Recurso", ["Culto en Vivo", "Campamento", "Conferencia", "Material de Estudio", "Anuncio de la Semana"])
+        url_e = st.text_input("Enlace de Video o Transmisión (Pega el link de YouTube o Facebook)")
+        fecha_e = st.date_input("Fecha programada para el Evento", datetime.now())
         
-        opcion = st.selectbox("Selecciona Módulo:", menu)
-        if opcion == "Inicio / Eventos": vista_publica()
-        elif opcion == "Consolidación y Asistencia": panel_consolidacion()
-        elif opcion == "Gestión Financiera": panel_financiero()
-        elif opcion == "Chat de Líderes": sala_chat(usuario)
-
-if __name__ == "__main__":
-    main()
+        if st.form_submit_button("Publicar en la Cartelera Pública"):
