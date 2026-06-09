@@ -8,7 +8,6 @@ st.set_page_config(page_title="Herederos Iglesia Nacional", layout="centered")
 # URL Base de tu Google Sheet (Extraída de tu enlace público)
 # Al usar la exportación directa en formato CSV, rompemos cualquier bloqueo técnico del servidor.
 BASE_URL = "https://google.com"
-
 # --------- Carga de Datos Directa e Infalible -------------
 def load_sheet_data(worksheet_name):
     try:
