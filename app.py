@@ -191,4 +191,24 @@ def panel_eventos():
         url_e = st.text_input("Enlace de Video o Transmisión (Pega el link de YouTube o Facebook)")
         fecha_e = st.date_input("Fecha programada para el Evento", datetime.now())
         
-        if st.form_submit_button("Publicar en la Cartelera Pública"):
+        publicar_btn = st.form_submit_button("Publicar en la Cartelera Pública")
+        
+        if publicar_btn:
+            if titulo_e.strip():
+                nuevo_e = pd.DataFrame([{
+                    "Fecha": fecha_e.strftime("%Y-%m-%d"), 
+                    "Título": titulo_e.strip(), 
+                    "Tipo": tipo_e, 
+                    "Enlace_Multimedia": url_e.strip()
+                }])
+                df_e = pd.concat([df_e, nuevo_e], ignore_index=True)
+                guardar_datos(DB_EVENTOS, df_e)
+                st.success("¡Contenido publicado! Ya está visible en la sección de inicio.")
+                st.rerun()
+                
+    st.markdown("---")
+    st.subheader("📋 Eventos Publicados")
+    if not df_e.empty:
+        st.dataframe(df_e, use_container_width=True)
+    else:
+        st.caption("No hay eventos en cartelera.")
