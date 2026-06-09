@@ -10,7 +10,7 @@ st.set_page_config(page_title="Herederos Iglesia Nacional", layout="centered")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --------- Carga de Datos Eficiente -------------
-@st.cache_data(ttl=60)  # Actualiza los datos automáticamente cada minuto
+@st.cache_data(ttl=5)  # Bajamos el tiempo para que lea los cambios al instante
 def load_sheet_data(worksheet_name):
     try:
         return conn.read(worksheet=worksheet_name)
@@ -21,7 +21,7 @@ def load_sheet_data(worksheet_name):
 usuarios_df = load_sheet_data("USUARIOS")
 miembros_df = load_sheet_data("MIEMBROS")
 asistencia_df = load_sheet_data("ASISTENCIA")
-oraciones_df = load_sheet_data("Oraciones")  # 'Oraciones' tal como tu pestaña
+oraciones_df = load_sheet_data("Oraciones")
 finanzas_df = load_sheet_data("FINANZAS")
 chat_df = load_sheet_data("CHAT_LIDERES")
 eventos_df = load_sheet_data("EVENTOS")
@@ -40,15 +40,15 @@ def autenticar():
             if not usuarios_df.empty and "Correo_Electronico" in usuarios_df.columns and "Contraseña" in usuarios_df.columns:
                 user = usuarios_df[(usuarios_df["Correo_Electronico"] == email) & (usuarios_df["Contraseña"] == str(password))]
                 if not user.empty:
-                    # CORREGIDO: iloc[0].to_dict() para evitar errores de pandas
                     st.session_state.usuario = user.iloc[0].to_dict()
                     st.rerun()
                 else:
                     st.sidebar.error("Usuario o contraseña incorrectos.")
             else:
                 st.sidebar.error("Error técnico: Verifica las columnas de la tabla de USUARIOS.")
+                # 👇 ESTA ES LA LÍNEA NUEVA DE DIAGNÓSTICO QUE AÑADIMOS
+                st.sidebar.write("Columnas detectadas por la app:", list(usuarios_df.columns) if not usuarios_df.empty else "La tabla se leyó completamente vacía.")
     else:
-        # CORREGIDO: Lee la columna exacta de tu hoja 'Nombre_Completo'
         st.sidebar.success(f"Bienvenido: {st.session_state.usuario['Nombre_Completo']}")
         st.sidebar.info(f"Rol: {st.session_state.usuario['Rol']}")
         if st.sidebar.button("Cerrar Sesión"):
@@ -70,7 +70,7 @@ def vista_publica():
         st.write("No hay eventos programados para esta semana.")
 
     st.markdown("---")
-    # Formulario Público de Oración (Pestaña 'Oraciones')
+    # Formulario Público de Oración
     st.subheader("🙏 Enviar Petición de Oración")
     with st.form("form_oracion", clear_on_submit=True):
         nombre = st.text_input("Tu Nombre (Opcional)")
@@ -89,8 +89,6 @@ def vista_publica():
 
 def panel_consolidacion():
     st.markdown("## 👥 Módulo de Consolidación")
-    
-    # 1. Registrar Nuevo Miembro
     st.subheader("📝 Registrar Nuevo Creyente")
     with st.form("form_miembros", clear_on_submit=True):
         col1, col2 = st.columns(2)
@@ -119,7 +117,6 @@ def panel_consolidacion():
             st.success(f"¡{nombre_m} registrado exitosamente!")
 
     st.markdown("---")
-    # 2. Pase de Asistencia
     st.subheader("✔️ Control de Asistencia")
     if not miembros_df.empty:
         fecha_culto = st.date_input("Fecha del Servicio/Culto", datetime.now())
@@ -176,7 +173,6 @@ def sala_chat(usuario_actual):
         if enviar_msg and msg.strip():
             nueva_fila = pd.DataFrame([{
                 "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                # CORREGIDO: Usa 'Nombre_Completo' para identificar al líder que escribe
                 "Usuario": usuario_actual.get("Nombre_Completo", "Líder"),
                 "Mensaje": msg
             }])
@@ -199,7 +195,6 @@ def main():
         vista_publica()
     else:
         rol = usuario.get("Rol", "Servidor")
-        
         menu = ["Inicio / Oraciones"]
         if rol in ["Pastor", "Líder", "Servidor"]:
             menu.append("Consolidación y Asistencia")
@@ -208,7 +203,6 @@ def main():
         menu.append("Chat de Líderes")
         
         opcion = st.selectbox("Selecciona el módulo de trabajo:", menu)
-        
         if opcion == "Inicio / Oraciones":
             vista_publica()
         elif opcion == "Consolidación y Asistencia":
