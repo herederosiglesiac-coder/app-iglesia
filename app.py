@@ -6,20 +6,21 @@ from datetime import datetime
 # --- Configuración Base ---
 st.set_page_config(page_title="Herederos Iglesia Nacional", layout="centered")
 
-# Inicializar la conexión oficial a través de los Secrets del servidor
+# Inyección directa de la URL para saltar bloqueos de Secrets
+URL_DIRECTA = "https://google.com"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- Carga de Datos Resiliente y Segura ---
-@st.cache_data(ttl=15)
+# --- Carga de Datos Resiliente y Directa ---
+@st.cache_data(ttl=10)
 def load_sheet_data(worksheet_name):
     try:
-        # Lee de forma oficial usando la URL guardada en los Secrets de Streamlit
-        df = conn.read(worksheet=worksheet_name)
+        # Se lee la pestaña usando la URL explícita del documento
+        df = conn.read(spreadsheet=URL_DIRECTA, worksheet=worksheet_name)
         return df.dropna(how='all')
     except Exception as e:
         return pd.DataFrame()
 
-# Cargar las tablas de la Iglesia
+# Cargar las tablas de la Iglesia de forma directa
 usuarios_df = load_sheet_data("USUARIOS")
 miembros_df = load_sheet_data("MIEMBROS")
 asistencia_df = load_sheet_data("ASISTENCIA")
@@ -48,7 +49,7 @@ def autenticar():
         
         if st.sidebar.button("Iniciar Sesión"):
             if usuarios_df.empty:
-                st.sidebar.error("No se pudo acceder a la tabla de USUARIOS. Verifica la URL en los Secrets.")
+                st.sidebar.error("Error de acceso: No se pudo conectar a la tabla de USUARIOS. Verifica que tu Google Sheet tenga el acceso compartido en modo público.")
                 return None
                 
             col_email = buscar_columna(usuarios_df, ["Correo", "Email", "Correo Electronico", "Usuario"])
@@ -72,7 +73,7 @@ def autenticar():
                 else:
                     st.sidebar.error("Correo o contraseña incorrectos.")
             else:
-                st.sidebar.error("Asegúrate de que tu pestaña USUARIOS tenga las columnas 'Correo' y 'Contraseña'.")
+                st.sidebar.error("Asegúrate de que tu pestaña USUARIOS tenga las columnas llamadas exactamente 'Correo' y 'Contraseña'.")
     else:
         st.sidebar.success(f"Hola: {st.session_state.usuario.get('Nombre')}")
         st.sidebar.info(f"Rol: {st.session_state.usuario.get('Rol')}")
@@ -104,7 +105,7 @@ def vista_publica():
             if not oraciones_df.empty:
                 nueva_fila = pd.DataFrame([{"Nombre": nombre or "Anónimo", "Peticion": peticion, "Fecha": datetime.now().strftime("%Y-%m-%d")}])
                 updated_df = pd.concat([oraciones_df, nueva_fila], ignore_index=True)
-                conn.update(worksheet="Oraciones", data=updated_df)
+                conn.update(spreadsheet=URL_DIRECTA, worksheet="Oraciones", data=updated_df)
                 st.success("¡Petición enviada! Estaremos orando por ti.")
             else:
                 st.error("No se pudo conectar a la base de datos para guardar.")
