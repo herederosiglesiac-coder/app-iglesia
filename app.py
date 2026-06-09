@@ -1,28 +1,25 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
-import urllib.parse
 
 # --- Configuración Base ---
 st.set_page_config(page_title="Herederos Iglesia Nacional", layout="centered")
 
-# ID de tu documento real extraído de la URL
-SHEET_ID = "1FsxE_0tPQ-PZlcRb0_gSrxsAJBkBX95JuC4MXiZZr2s"
+# Inicializar la conexión oficial a través de los Secrets del servidor
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- Carga de Datos Directa y Ultra-Resiliente (CSV Abierto) ---
-@st.cache_data(ttl=10)
+# --- Carga de Datos Resiliente y Segura ---
+@st.cache_data(ttl=15)
 def load_sheet_data(worksheet_name):
     try:
-        # Se codifica el nombre de la pestaña para evitar errores de espacios o caracteres
-        sheet_name_encoded = urllib.parse.quote(worksheet_name)
-        # URL oficial de Google para descargar pestañas individuales en texto plano
-        url = f"https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={sheet_name_encoded}"
-        df = pd.read_csv(url)
+        # Lee de forma oficial usando la URL guardada en los Secrets de Streamlit
+        df = conn.read(worksheet=worksheet_name)
         return df.dropna(how='all')
     except Exception as e:
         return pd.DataFrame()
 
-# Cargar las tablas de la Iglesia en tiempo real
+# Cargar las tablas de la Iglesia
 usuarios_df = load_sheet_data("USUARIOS")
 miembros_df = load_sheet_data("MIEMBROS")
 asistencia_df = load_sheet_data("ASISTENCIA")
@@ -33,15 +30,13 @@ eventos_df = load_sheet_data("EVENTOS")
 
 # --- Identificador Inteligente de Columnas ---
 def buscar_columna(df, posibles_nombres):
-    if df.empty:
-        return None
+    if df.empty: return None
     for nombre in posibles_nombres:
         for col in df.columns:
-            if str(col).strip().lower() == nombre.lower():
-                return col
+            if str(col).strip().lower() == nombre.lower(): return col
     return None
 
-# --- Módulo de Autenticación Pro ---
+# --- Módulo de Autenticación de Líderes ---
 def autenticar():
     st.sidebar.title("🔐 Acceso Líderes")
     if "usuario" not in st.session_state: 
@@ -53,7 +48,7 @@ def autenticar():
         
         if st.sidebar.button("Iniciar Sesión"):
             if usuarios_df.empty:
-                st.sidebar.error("No se pudo acceder a la tabla de USUARIOS en Google Sheets.")
+                st.sidebar.error("No se pudo acceder a la tabla de USUARIOS. Verifica la URL en los Secrets.")
                 return None
                 
             col_email = buscar_columna(usuarios_df, ["Correo", "Email", "Correo Electronico", "Usuario"])
@@ -62,7 +57,6 @@ def autenticar():
             col_rol = buscar_columna(usuarios_df, ["Rol", "Tipo", "Permiso"])
             
             if col_email and col_pass:
-                # Validar credenciales limpiando espacios y asegurando compatibilidad de texto
                 usuarios_df[col_email] = usuarios_df[col_email].astype(str).str.strip().str.lower()
                 usuarios_df[col_pass] = usuarios_df[col_pass].astype(str).str.strip()
                 
@@ -78,7 +72,7 @@ def autenticar():
                 else:
                     st.sidebar.error("Correo o contraseña incorrectos.")
             else:
-                st.sidebar.error("Verifica que las columnas de tu pestaña USUARIOS incluyan 'Correo' y 'Contraseña'.")
+                st.sidebar.error("Asegúrate de que tu pestaña USUARIOS tenga las columnas 'Correo' y 'Contraseña'.")
     else:
         st.sidebar.success(f"Hola: {st.session_state.usuario.get('Nombre')}")
         st.sidebar.info(f"Rol: {st.session_state.usuario.get('Rol')}")
@@ -103,28 +97,33 @@ def vista_publica():
         
     st.markdown("---")
     st.subheader("🙏 Enviar Petición de Oración")
-    st.warning("⚠️ Nota: El guardado directo requiere configuración de credenciales de escritura de Google. La interfaz visual está lista.")
     with st.form("form_oracion", clear_on_submit=True):
         nombre = st.text_input("Tu Nombre")
         peticion = st.text_area("Petición")
         if st.form_submit_button("Enviar"):
-            st.success("¡Formulario procesado con éxito!")
+            if not oraciones_df.empty:
+                nueva_fila = pd.DataFrame([{"Nombre": nombre or "Anónimo", "Peticion": peticion, "Fecha": datetime.now().strftime("%Y-%m-%d")}])
+                updated_df = pd.concat([oraciones_df, nueva_fila], ignore_index=True)
+                conn.update(worksheet="Oraciones", data=updated_df)
+                st.success("¡Petición enviada! Estaremos orando por ti.")
+            else:
+                st.error("No se pudo conectar a la base de datos para guardar.")
 
 def panel_consolidacion():
     st.markdown("## 👥 Módulo de Consolidación")
-    st.success("Conectado con la pestaña MIEMBROS. Datos listos para operar.")
+    st.success("Conectado con la pestaña MIEMBROS.")
     if not miembros_df.empty:
         st.dataframe(miembros_df.head(10))
 
 def panel_financiero():
     st.markdown("## 💰 Módulo de Finanzas")
-    st.success("Conectado con la pestaña FINANZAS. Visualización activa.")
+    st.success("Conectado con la pestaña FINANZAS.")
     if not finanzas_df.empty:
         st.dataframe(finanzas_df.head(10))
 
 def sala_chat(usuario_actual):
     st.markdown("## 💬 Chat Interno de Líderes")
-    st.success("Muro de mensajes enlazado a CHAT_LIDERES.")
+    st.success("Muro de mensajes activo.")
     if not chat_df.empty:
         st.dataframe(chat_df.tail(10))
 
@@ -142,7 +141,7 @@ def main():
             menu.append("Gestión Financiera")
         menu.append("Chat de Líderes")
         
-        opcion = st.sidebar.selectbox("Selecciona Módulo:", menu)
+        opcion = st.selectbox("Selecciona Módulo:", menu)
         if opcion == "Inicio / Eventos": vista_publica()
         elif opcion == "Consolidación y Asistencia": panel_consolidacion()
         elif opcion == "Gestión Financiera": panel_financiero()
