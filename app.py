@@ -7,7 +7,7 @@ from io import BytesIO
 # --- Configuración Base de la Pantalla ---
 st.set_page_config(page_title="Herederos Iglesia Nacional", layout="centered")
 
-# --- Base de Datos Interna de la App (Segura y Libre de Bloqueos) ---
+# --- Base de Datos Interna de la App (Segura y Autónoma) ---
 DB_MIEMBROS = "db_miembros.csv"
 DB_ASISTENCIA = "db_asistencia.csv"
 DB_FINANZAS = "db_finanzas.csv"
@@ -15,11 +15,15 @@ DB_EVENTOS = "db_eventos.csv"
 DB_ORACIONES = "db_oraciones.csv"
 DB_CHAT = "db_chat.csv"
 
-# Funciones de utilidad para leer y escribir datos sin intermediarios
+# Funciones de utilidad para leer y escribir datos de forma segura
 def cargar_datos(archivo, columnas):
     if os.path.exists(archivo):
-        try: return pd.read_csv(archivo)
-        except: return pd.DataFrame(columns=columnas)
+        try:
+            df = pd.read_csv(archivo)
+            # Asegurar que no regresen nulos molestos
+            return df.fillna("")
+        except:
+            return pd.DataFrame(columns=columnas)
     return pd.DataFrame(columns=columnas)
 
 def guardar_datos(archivo, df):
@@ -32,28 +36,33 @@ def convertir_a_excel(df):
         df.to_excel(writer, index=False, sheet_name='Reporte_Oficial')
     return output.getvalue()
 
-# --- Base de Datos Local de Usuarios ---
+# --- Base de Datos Local de Usuarios Autorizados ---
 USUARIOS_LOCALES = [
-    {"Nombre_Completo": "Jose Perez", "Correo_Electronico": "perezajosef@gmail.com", "Contraseña": "pastor123", "Rol": "PASTOR"}
+    {"Nombre_Completo": "Jose Perez", "Correo_Electronico": "perezajosef@gmail.com", "Contrasena": "pastor123", "Rol": "PASTOR"}
 ]
 usuarios_df = pd.DataFrame(USUARIOS_LOCALES)
 
 # --- Módulo de Autenticación de Líderes ---
 def autenticar():
     st.sidebar.title("🔐 Acceso Líderes")
-    if "usuario" not in st.session_state: st.session_state.usuario = None
+    if "usuario" not in st.session_state:
+        st.session_state.usuario = None
+
     if st.session_state.usuario is None:
         email_input = st.sidebar.text_input("Correo Electrónico", key="login_email").strip().lower()
         pass_input = st.sidebar.text_input("Contraseña", type="password", key="login_pass").strip()
+        
         if st.sidebar.button("Iniciar Sesión"):
-            user = usuarios_df[(usuarios_df["Correo_Electronico"] == email_input) & (usuarios_df["Contraseña"] == pass_input)]
-            if not user.empty:
+            # Validación limpia libre de fallas de índice
+            user_match = usuarios_df[(usuarios_df["Correo_Electronico"] == email_input) & (usuarios_df["Contrasena"] == pass_input)]
+            if not user_match.empty:
                 st.session_state.usuario = {
-                    "Nombre": user.iloc[0]["Nombre_Completo"],
-                    "Rol": user.iloc[0]["Rol"]
+                    "Nombre": str(user_match.iloc[0]["Nombre_Completo"]),
+                    "Rol": str(user_match.iloc[0]["Rol"])
                 }
                 st.rerun()
-            else: st.sidebar.error("Correo o contraseña incorrectos.")
+            else:
+                st.sidebar.error("Correo o contraseña incorrectos.")
     else:
         st.sidebar.success(f"Hola: {st.session_state.usuario.get('Nombre')}")
         st.sidebar.info(f"Rol: {st.session_state.usuario.get('Rol')}")
@@ -139,7 +148,6 @@ def panel_consolidacion():
     st.subheader("📋 Lista General de la Congregación")
     if not df_m.empty:
         st.dataframe(df_m, use_container_width=True)
-        # BOTÓN AVANZADO: Exportar lista completa de la iglesia a Excel
         excel_data = convertir_a_excel(df_m)
         st.download_button(label="📥 Descargar Base de Miembros (Excel)", data=excel_data, file_name=f"Censo_Miembros_{datetime.now().strftime('%Y-%m-%d')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else:
@@ -158,7 +166,6 @@ def panel_financiero():
             cat_f = st.text_input("Categoría (Ej: Diezmos, Ofrendas, Luz, Eventos, Misiones)")
             monto_f = st.number_input("Monto ($)", min_value=0.0, step=1.0)
         with col2:
-            # SEDES REALES CONFIGURADAS
             sede_f = st.selectbox("Sede de la Iglesia", ["Sede Central", "Sede Norte", "Sede Sur", "Sede Este"])
             detalle_f = st.text_area("Concepto / Descripción del movimiento")
         
@@ -173,7 +180,6 @@ def panel_financiero():
     st.subheader("📊 Historial Contable")
     if not df_f.empty:
         st.dataframe(df_f, use_container_width=True)
-        # BOTÓN AVANZADO: Descargar el libro de finanzas completo a Excel
         excel_finanzas = convertir_a_excel(df_f)
         st.download_button(label="📥 Descargar Reporte Financiero (Excel)", data=excel_finanzas, file_name=f"Libro_Finanzas_{datetime.now().strftime('%Y-%m-%d')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else:
@@ -191,24 +197,3 @@ def panel_eventos():
         url_e = st.text_input("Enlace de Video o Transmisión (Pega el link de YouTube o Facebook)")
         fecha_e = st.date_input("Fecha programada para el Evento", datetime.now())
         
-        publicar_btn = st.form_submit_button("Publicar en la Cartelera Pública")
-        
-        if publicar_btn:
-            if titulo_e.strip():
-                nuevo_e = pd.DataFrame([{
-                    "Fecha": fecha_e.strftime("%Y-%m-%d"), 
-                    "Título": titulo_e.strip(), 
-                    "Tipo": tipo_e, 
-                    "Enlace_Multimedia": url_e.strip()
-                }])
-                df_e = pd.concat([df_e, nuevo_e], ignore_index=True)
-                guardar_datos(DB_EVENTOS, df_e)
-                st.success("¡Contenido publicado! Ya está visible en la sección de inicio.")
-                st.rerun()
-                
-    st.markdown("---")
-    st.subheader("📋 Eventos Publicados")
-    if not df_e.empty:
-        st.dataframe(df_e, use_container_width=True)
-    else:
-        st.caption("No hay eventos en cartelera.")
