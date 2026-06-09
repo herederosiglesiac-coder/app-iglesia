@@ -1,12 +1,29 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import os
 
 # --- Configuración Base de la Pantalla ---
 st.set_page_config(page_title="Herederos Iglesia Nacional", layout="centered")
 
-# --- Datos de Prueba Integrados en Código (No requiere descargar de Google) ---
-# Aquí puedes agregar manualmente más líderes si lo deseas en el futuro
+# --- Bases de Datos Internas de la Aplicación ---
+DB_MIEMBROS = "db_miembros.csv"
+DB_ASISTENCIA = "db_asistencia.csv"
+DB_FINANZAS = "db_finanzas.csv"
+DB_CHAT = "db_chat.csv"  # <- Base de datos interna para el Chat
+
+# Funciones de utilidad seguras para cargar y guardar información
+def cargar_datos(archivo, columnas):
+    if os.path.exists(archivo):
+        try: return pd.read_csv(archivo)
+        except: return pd.DataFrame(columns=columnas)
+    return pd.DataFrame(columns=columnas)
+
+def guardar_datos(archivo, df):
+    df.to_csv(archivo, index=False)
+
+# --- Base de Datos Local de Usuarios ---
+# Copiado exactamente de tu código estable que sí funciona
 USUARIOS_LOCALES = [
     {
         "Nombre_Completo": "Jose Perez",
@@ -15,19 +32,9 @@ USUARIOS_LOCALES = [
         "Rol": "PASTOR"
     }
 ]
-
-# --- Convertirlos en una Tabla Virtual ---
 usuarios_df = pd.DataFrame(USUARIOS_LOCALES)
 
-# Tablas vacías de respaldo por si el servidor requiere las variables
-miembros_df = pd.DataFrame()
-asistencia_df = pd.DataFrame()
-oraciones_df = pd.DataFrame()
-finanzas_df = pd.DataFrame()
-chat_df = pd.DataFrame()
-eventos_df = pd.DataFrame()
-
-# --- Módulo de Autenticación de Líderes Local ---
+# --- Módulo de Autenticación de Líderes ---
 def autenticar():
     st.sidebar.title("🔐 Acceso Líderes")
     if "usuario" not in st.session_state: 
@@ -38,17 +45,13 @@ def autenticar():
         pass_input = st.sidebar.text_input("Contraseña", type="password", key="login_pass").strip()
         
         if st.sidebar.button("Iniciar Sesión"):
-            # Buscar concordancia directamente en la tabla integrada del código
-            user = usuarios_df[
-                (usuarios_df["Correo_Electronico"] == email_input) & 
-                (usuarios_df["Contraseña"] == pass_input)
-            ]
+            user = usuarios_df[(usuarios_df["Correo_Electronico"] == email_input) & (usuarios_df["Contraseña"] == pass_input)]
             
             if not user.empty:
-                fila = user.iloc[0]
+                # --- ¡CORRECCIÓN CLAVE! Se extraen los datos usando el índice [0] seguro ---
                 st.session_state.usuario = {
-                    "Nombre": fila["Nombre_Completo"],
-                    "Rol": fila["Rol"]
+                    "Nombre": user.iloc[0]["Nombre_Completo"],
+                    "Rol": user.iloc[0]["Rol"]
                 }
                 st.rerun()
             else:
@@ -78,17 +81,82 @@ def vista_publica():
 def panel_consolidacion():
     st.markdown("## 👥 Módulo de Consolidación")
     st.success("Panel de administración activo. Interfaz lista para operar.")
-    st.write("Aquí podrás registrar nuevos creyentes e históricos.")
+    
+    # Cargar base de datos interna de miembros
+    df_m = cargar_datos(DB_MIEMBROS, ["ID", "Nombre Completo", "Teléfono", "Cédula", "Estado"])
+    
+    # Formulario para capturar nuevos creyentes
+    with st.form("form_registro_miembro", clear_on_submit=True):
+        nombre_m = st.text_input("Nombre Completo del Miembro")
+        tel_m = st.text_input("Número de Teléfono")
+        cedula_m = st.text_input("Número de Cédula")
+        estado_m = st.selectbox("Estado de Consolidación", ["Nuevo Convertido", "En Consolidación", "Miembro Activo"])
+        
+        if st.form_submit_button("Guardar Miembro") and nombre_m.strip():
+            nuevo_id = len(df_m) + 1
+            nueva_fila = pd.DataFrame([{"ID": nuevo_id, "Nombre Completo": nombre_m.strip(), "Teléfono": tel_m.strip(), "Cédula": cedula_m.strip(), "Estado": estado_m}])
+            df_m = pd.concat([df_m, nueva_fila], ignore_index=True)
+            guardar_datos(DB_MIEMBROS, df_m)
+            st.success(f"¡{nombre_m} registrado exitosamente!")
+            st.rerun()
+            
+    st.markdown("---")
+    st.subheader("📋 Miembros Registrados Recientemente")
+    if not df_m.empty:
+        st.dataframe(df_m, use_container_width=True)
+    else:
+        st.caption("No hay miembros registrados aún.")
 
 def panel_financiero():
     st.markdown("## 💰 Módulo de Finanzas")
     st.success("Panel financiero activo. Control de ingresos y egresos.")
-    st.write("Acceso exclusivo para rol de Pastor y Tesoreros.")
+    
+    # Cargar base de datos interna contable
+    df_f = cargar_datos(DB_FINANZAS, ["Fecha", "Tipo", "Monto", "Sede", "Detalle"])
+    
+    with st.form("form_registro_finanzas", clear_on_submit=True):
+        tipo_f = st.selectbox("Tipo de Movimiento", ["Ingreso (Diezmo / Ofrenda)", "Egreso (Gasto)"])
+        monto_f = st.number_input("Monto ($)", min_value=0.0, step=1.0)
+        sede_f = st.selectbox("Sede", ["Sede Central", "Sedes Locales"])
+        detalle_f = st.text_area("Concepto / Detalle")
+        
+        if st.form_submit_button("Registrar Movimiento") and monto_f > 0:
+            nueva_fila = pd.DataFrame([{"Fecha": datetime.now().strftime("%Y-%m-%d"), "Tipo": tipo_f, "Monto": monto_f, "Sede": sede_f, "Detalle": detalle_f.strip()}])
+            df_f = pd.concat([df_f, nueva_fila], ignore_index=True)
+            guardar_datos(DB_FINANZAS, df_f)
+            st.success("¡Movimiento contable registrado con éxito!")
+            st.rerun()
+            
+    st.markdown("---")
+    st.subheader("📊 Historial Contable Reciente")
+    if not df_f.empty:
+        st.dataframe(df_f, use_container_width=True)
+    else:
+        st.caption("No hay movimientos contables registrados hoy.")
 
 def sala_chat(usuario_actual):
     st.markdown("## 💬 Chat Interno de Líderes")
-    st.success("Muro de mensajes activo para coordinación.")
-    st.write(f"Conectado como: {usuario_actual.get('Nombre')}")
+    st.success("Muro de mensajes activo para coordinación técnica.")
+    
+    # Cargar historial del chat interno
+    df_c = cargar_datos(DB_CHAT, ["Fecha", "De", "Mensaje"])
+    
+    with st.form("form_enviar_chat", clear_on_submit=True):
+        mensaje_c = st.text_input("Escribe un mensaje para el equipo:")
+        if st.form_submit_button("Enviar al Muro") and mensaje_c.strip():
+            nuevo_msg = pd.DataFrame([{"Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"), "De": usuario_actual["Nombre"], "Mensaje": mensaje_c.strip()}])
+            df_c = pd.concat([df_c, nuevo_msg], ignore_index=True)
+            guardar_datos(DB_CHAT, df_c)
+            st.rerun()
+            
+    st.markdown("---")
+    if not df_c.empty:
+        # Mostrar los últimos 15 mensajes en orden cronológico inverso (el más nuevo arriba)
+        for _, row in df_c.tail(15).iloc[::-1].iterrows():
+            st.markdown(f"🔹 **{row['De']}** *({row['Fecha']})*")
+            st.info(row['Mensaje'])
+    else:
+        st.caption("No hay mensajes en la sala de chat de líderes.")
 
 # --- Controlador Central ---
 def main():
