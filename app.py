@@ -56,13 +56,12 @@ def autenticar():
                 user_match = usuarios_df[(usuarios_df["Correo"] == email_input) & (usuarios_df["Contraseña"] == pass_input)]
                 
                 if not user_match.empty:
-                    # CORREGIDO: Forma nativa y segura de sacar los datos sin romper la indentación
                     datos_usuario = user_match.to_dict(orient="records")[0]
                     st.session_state.usuario = {
                         "Nombre": str(datos_usuario.get("Nombre", "Líder")),
                         "Rol": str(datos_usuario.get("Rol", "Servidor")).upper()
                     }
-                    st.rerun()
+                    st.success("¡Sesión iniciada exitosamente! Por favor use el menú.")
                 else:
                     st.sidebar.error("Correo o contraseña incorrectos.")
             else:
@@ -72,7 +71,7 @@ def autenticar():
         st.sidebar.info(f"Rol: {st.session_state.usuario.get('Rol')}")
         if st.sidebar.button("Cerrar Sesión"):
             st.session_state.usuario = None
-            st.rerun()
+
     return st.session_state.usuario
 
 # --- 1. VISTA PÚBLICA (Anuncios de la Iglesia y Oraciones) ---
@@ -107,7 +106,6 @@ def vista_publica():
                 updated_df = pd.concat([oraciones_df, nueva_fila], ignore_index=True)
                 conn.update(worksheet="Oraciones", data=updated_df)
                 st.success("¡Petición enviada! Estaremos orando por ti.")
-                st.rerun()
 
 # --- 2. PANEL DE CONSOLIDACIÓN Y ASISTENCIA ---
 def panel_consolidacion():
@@ -133,7 +131,6 @@ def panel_consolidacion():
             updated_df = pd.concat([miembros_df, nueva_fila], ignore_index=True)
             conn.update(worksheet="MIEMBROS", data=updated_df)
             st.success(f"¡{nombre_m} registrado con éxito!")
-            st.rerun()
 
     st.markdown("---")
     
@@ -153,7 +150,6 @@ def panel_consolidacion():
             updated_df = pd.concat([asistencia_df, nuevos_registros], ignore_index=True)
             conn.update(worksheet="ASISTENCIA", data=updated_df)
             st.success("¡Asistencia guardada!")
-            st.rerun()
             
     st.markdown("---")
     if not miembros_df.empty:
@@ -183,7 +179,6 @@ def panel_financiero():
             updated_df = pd.concat([finanzas_df, nueva_fila], ignore_index=True)
             conn.update(worksheet="FINANZAS", data=updated_df)
             st.success("¡Movimiento financiero guardado!")
-            st.rerun()
             
     st.markdown("---")
     if not finanzas_df.empty:
@@ -204,9 +199,11 @@ def panel_chat(usuario_actual):
             }])
             updated_df = pd.concat([chat_df, nueva_fila], ignore_index=True)
             conn.update(worksheet="CHAT_LIDERES", data=updated_df)
-            st.rerun()
+            st.success("¡Mensaje publicado!")
             
     st.markdown("---")
     if not chat_df.empty:
         for _, row in chat_df.tail(15).iloc[::-1].iterrows():
             usuario_msg = row.get('Usuario', row.get('De', 'Líder'))
+            fecha_msg = row.get('Fecha', '')
+            texto_msg = row.get('Mensaje', '')
