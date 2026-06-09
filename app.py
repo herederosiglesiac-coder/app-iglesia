@@ -21,7 +21,7 @@ def load_sheet_data(worksheet_name):
 usuarios_df = load_sheet_data("USUARIOS")
 miembros_df = load_sheet_data("MIEMBROS")
 asistencia_df = load_sheet_data("ASISTENCIA")
-oraciones_df = load_sheet_data("Oraciones")  # <- CORREGIDO: 'Oraciones' tal como tu pestaña
+oraciones_df = load_sheet_data("Oraciones")  # 'Oraciones' tal como tu pestaña
 finanzas_df = load_sheet_data("FINANZAS")
 chat_df = load_sheet_data("CHAT_LIDERES")
 eventos_df = load_sheet_data("EVENTOS")
@@ -40,6 +40,7 @@ def autenticar():
             if not usuarios_df.empty and "Correo_Electronico" in usuarios_df.columns and "Contraseña" in usuarios_df.columns:
                 user = usuarios_df[(usuarios_df["Correo_Electronico"] == email) & (usuarios_df["Contraseña"] == str(password))]
                 if not user.empty:
+                    # CORREGIDO: iloc[0].to_dict() para evitar errores de pandas
                     st.session_state.usuario = user.iloc[0].to_dict()
                     st.rerun()
                 else:
@@ -47,7 +48,8 @@ def autenticar():
             else:
                 st.sidebar.error("Error técnico: Verifica las columnas de la tabla de USUARIOS.")
     else:
-        st.sidebar.success(f"Bienvenido: {st.session_state.usuario['Nombre']}")
+        # CORREGIDO: Lee la columna exacta de tu hoja 'Nombre_Completo'
+        st.sidebar.success(f"Bienvenido: {st.session_state.usuario['Nombre_Completo']}")
         st.sidebar.info(f"Rol: {st.session_state.usuario['Rol']}")
         if st.sidebar.button("Cerrar Sesión"):
             st.session_state.usuario = None
@@ -82,7 +84,7 @@ def vista_publica():
                 "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M")
             }])
             updated_df = pd.concat([oraciones_df, nueva_fila], ignore_index=True)
-            conn.update(worksheet="Oraciones", data=updated_df)  # <- CORREGIDO: Guarda en 'Oraciones'
+            conn.update(worksheet="Oraciones", data=updated_df)
             st.success("¡Petición enviada! Nuestra red de intercesores estará orando por ti.")
 
 def panel_consolidacion():
@@ -121,8 +123,7 @@ def panel_consolidacion():
     st.subheader("✔️ Control de Asistencia")
     if not miembros_df.empty:
         fecha_culto = st.date_input("Fecha del Servicio/Culto", datetime.now())
-        # Buscamos la columna exacta de tu Google Sheet 'Nombre Completo'
-        col_nombre = "Nombre Completo" if "Nombre Completo" in miembros_df.columns else miembros_df.columns[1]
+        col_nombre = "Nombre_Completo" if "Nombre_Completo" in miembros_df.columns else miembros_df.columns[1]
         lista_nombres = miembros_df[col_nombre].dropna().tolist()
         asistieron = st.multiselect("Selecciona los miembros presentes:", lista_nombres)
         
@@ -175,7 +176,8 @@ def sala_chat(usuario_actual):
         if enviar_msg and msg.strip():
             nueva_fila = pd.DataFrame([{
                 "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "Usuario": usuario_actual.get("Nombre", "Líder"),
+                # CORREGIDO: Usa 'Nombre_Completo' para identificar al líder que escribe
+                "Usuario": usuario_actual.get("Nombre_Completo", "Líder"),
                 "Mensaje": msg
             }])
             updated_df = pd.concat([chat_df, nueva_fila], ignore_index=True)
